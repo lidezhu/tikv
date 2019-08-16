@@ -246,6 +246,7 @@ dependencies = [
  "chrono 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "crc 1.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "engine 0.0.1",
  "fail 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fs2 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.23 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -364,6 +365,7 @@ dependencies = [
 name = "cmd"
 version = "0.0.1"
 dependencies = [
+ "cdc 4.0.0-alpha",
  "chrono 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "engine 0.0.1",
@@ -1177,7 +1179,7 @@ dependencies = [
 [[package]]
 name = "kvproto"
 version = "0.0.2"
-source = "git+https://github.com/pingcap/kvproto.git?branch=cdc#c734e4080ca6953c0ed1f75824ff8453dc62333f"
+source = "git+https://github.com/pingcap/kvproto.git?branch=cdc#93197044d6d79a8c94646fcdc929d7cf50f4a35b"
 dependencies = [
  "futures 0.1.23 (registry+https://github.com/rust-lang/crates.io-index)",
  "grpcio 0.5.0-alpha.4 (registry+https://github.com/rust-lang/crates.io-index)",

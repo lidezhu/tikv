@@ -1,15 +1,17 @@
 use kvproto::raft_cmdpb::{AdminRequest, AdminResponse, RaftResponseHeader, Request, Response};
 use tikv::raftstore::coprocessor::*;
-use tikv_util::mpsc::*;
+use tikv_util::worker::Scheduler;
 
+use crate::endpoint::Task;
 use crate::RawEvent;
 
+#[derive(Clone)]
 pub struct CdcObserver {
-    sink: Sender<RawEvent>,
+    sink: Scheduler<Task>,
 }
 
 impl CdcObserver {
-    pub fn new(sink: Sender<RawEvent>) -> CdcObserver {
+    pub fn new(sink: Scheduler<Task>) -> CdcObserver {
         CdcObserver { sink }
     }
 }
@@ -26,7 +28,7 @@ impl AdminObserver for CdcObserver {
             index,
             request: req.clone(),
         };
-        self.sink.send(event).unwrap();
+        self.sink.schedule(Task::RawEvent(event)).unwrap();
     }
 
     fn post_apply_admin(
@@ -42,7 +44,7 @@ impl AdminObserver for CdcObserver {
             header: header.clone(),
             response: resp.clone(),
         };
-        self.sink.send(event).unwrap();
+        self.sink.schedule(Task::RawEvent(event)).unwrap();
     }
 }
 
@@ -53,7 +55,7 @@ impl QueryObserver for CdcObserver {
             index,
             requests: reqs.to_vec(),
         };
-        self.sink.send(event).unwrap();
+        self.sink.schedule(Task::RawEvent(event)).unwrap();
     }
 
     fn post_apply_query(
@@ -61,13 +63,13 @@ impl QueryObserver for CdcObserver {
         ctx: &mut ObserverContext<'_>,
         index: u64,
         header: &RaftResponseHeader,
-        resps: &mut Vec<Response>,
+        _: &mut Vec<Response>,
     ) {
         let event = RawEvent::DataResponse {
             region_id: ctx.region().get_id(),
             index,
             header: header.clone(),
         };
-        self.sink.send(event).unwrap();
+        self.sink.schedule(Task::RawEvent(event)).unwrap();
     }
 }

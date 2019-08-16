@@ -61,3 +61,4 @@ features = ["nightly", "push", "process"]
 [dev-dependencies]
 test_util = { path = "../test_util" }
 test_raftstore = { path = "../test_raftstore" }
+engine = { path = "../engine" }

@@ -7,6 +7,7 @@ use tikv_util::worker::*;
 
 use crate::endpoint::Task;
 
+#[derive(Clone)]
 pub struct Service {
     scheduler: Scheduler<Task>,
 }
@@ -24,6 +25,7 @@ impl ChangeData for Service {
         request: ChangeDataRequest,
         sink: ServerStreamingSink<ChangeDataEvent>,
     ) {
+        let region_id = request.region_id;
         // TODO: make it a bounded channel.
         let (tx, rx) = mpsc::unbounded();
         if let Err(status) = self
@@ -48,14 +50,18 @@ impl ChangeData for Service {
                 )))
             }
         }));
-        ctx.spawn(
-            send_resp
-                .map(|_s /* the sink */| {
+        let scheduler = self.scheduler.clone();
+        ctx.spawn(send_resp.then(move |res| {
+            scheduler.schedule(Task::Deregister { region_id }).unwrap();
+            match res {
+                Ok(_s) => {
                     info!("cdc send half closed");
-                })
-                .map_err(|e| {
+                }
+                Err(e) => {
                     error!("cdc send failed"; "error" => ?e);
-                }),
-        );
+                }
+            }
+            Ok(())
+        }));
     }
 }

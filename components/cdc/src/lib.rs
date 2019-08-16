@@ -10,6 +10,10 @@ mod endpoint;
 mod observer;
 mod service;
 
+pub use endpoint::Endpoint;
+pub use observer::CdcObserver;
+pub use service::Service;
+
 pub enum RawEvent {
     DataRequest {
         region_id: u64,

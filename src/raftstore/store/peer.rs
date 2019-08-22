@@ -1652,6 +1652,9 @@ impl Peer {
         if self.is_merging() {
             return Err(box_err!("can not read index due to merge"));
         }
+        if !self.is_leader() && self.leader_id() == INVALID_ID {
+            return Err(box_err!("can not read index due to no leader"));
+        }
         Ok(())
     }
 

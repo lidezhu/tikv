@@ -317,7 +317,7 @@ impl Service {
         request: ChangeDataRequest,
         conn_id: ConnId,
     ) -> Result<(), String> {
-        info!("cdc request"; "request" => ?request, "inner request", ?request.request);
+        info!("cdc request"; "request" => ?request, "inner request" => ?request.request);
         match request.request {
             None => {
                 info!("none request"; "downstream" => ?peer);

@@ -317,9 +317,14 @@ impl Service {
         request: ChangeDataRequest,
         conn_id: ConnId,
     ) -> Result<(), String> {
-        info!("cdc request"; "request" => ?request);
+        info!("cdc request"; "request" => ?request, "inner request", ?request.request);
         match request.request {
-            None | Some(ChangeDataRequest_oneof_request::Register(_)) => {
+            None => {
+                info!("none request"; "downstream" => ?peer);
+                Self::handle_register(scheduler, peer, request, conn_id)
+            }
+            Some(ChangeDataRequest_oneof_request::Register(_)) => {
+                info!("register request"; "downstream" => ?peer);
                 Self::handle_register(scheduler, peer, request, conn_id)
             }
             Some(ChangeDataRequest_oneof_request::Deregister(_)) => {

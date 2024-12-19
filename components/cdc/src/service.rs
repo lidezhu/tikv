@@ -317,6 +317,7 @@ impl Service {
         request: ChangeDataRequest,
         conn_id: ConnId,
     ) -> Result<(), String> {
+        info!("cdc request"; "request" => ?request);
         match request.request {
             None | Some(ChangeDataRequest_oneof_request::Register(_)) => {
                 Self::handle_register(scheduler, peer, request, conn_id)
@@ -368,6 +369,7 @@ impl Service {
         request: ChangeDataRequest,
         conn_id: ConnId,
     ) -> Result<(), String> {
+        info!("cdc deregister"; "request" => ?request);
         let task = if request.region_id != 0 {
             Task::Deregister(Deregister::Region {
                 conn_id,
@@ -410,6 +412,8 @@ impl Service {
             channel(conn_id, CDC_CHANNLE_CAPACITY, self.memory_quota.clone());
         let conn = Conn::new(conn_id, event_sink, ctx.peer());
         let mut explicit_features = vec![];
+
+        info!("handle_event_feed"; "downstream" => ctx.peer(), "event_feed_v2" => event_feed_v2);
 
         if event_feed_v2 {
             let headers = match Self::parse_headers(&ctx) {

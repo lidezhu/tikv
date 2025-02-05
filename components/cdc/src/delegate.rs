@@ -618,6 +618,10 @@ impl Delegate {
         connections: &HashMap<ConnId, Conn>,
         advance: &mut Advance,
     ) {
+        debug!(
+            "cdc region on_min_ts";
+            "region_id" => self.region_id,
+        );
         let locks = match &self.lock_tracker {
             LockTracker::Prepared { locks, .. } => locks,
             _ => {

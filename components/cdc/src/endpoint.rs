@@ -251,11 +251,12 @@ impl fmt::Debug for Task {
                 .field("multi_batch", &multi.len())
                 .finish(),
             Task::MinTs {
+                ref regions,
                 ref min_ts,
                 ref current_ts,
-                ..
             } => de
-                .field("type", &"mit_ts")
+                .field("type", &"min_ts")
+                .field("regions", &regions)
                 .field("current_ts", current_ts)
                 .field("min_ts", min_ts)
                 .finish(),
@@ -377,7 +378,10 @@ pub(crate) struct Advance {
 impl Advance {
     fn emit_resolved_ts(&mut self, connections: &HashMap<ConnId, Conn>) {
         let handle_send_result = |conn: &Conn, res: Result<(), SendError>| match res {
-            Ok(_) => {}
+            Ok(_) => {
+                debug!("cdc send event succeed";
+                        "conn_id" => ?conn.get_id(), "downstream" => ?conn.get_peer());
+            }
             Err(SendError::Disconnected) => {
                 debug!("cdc send event failed, disconnected";
                         "conn_id" => ?conn.get_id(), "downstream" => ?conn.get_peer());
@@ -1078,6 +1082,11 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
 
         self.resolved_region_count = advance.scan_finished;
         self.unresolved_region_count = advance.blocked_on_scan;
+        debug!(
+            "endpoint on_min_ts";
+            "resolved_region_count" => self.resolved_region_count,
+            "unresolved_region_count" => self.unresolved_region_count,
+        );
         advance.emit_resolved_ts(&self.connections);
         self.min_resolved_ts = advance.min_resolved_ts.into();
         self.min_ts_region_id = advance.min_ts_region_id;

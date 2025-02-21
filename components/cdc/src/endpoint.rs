@@ -1052,7 +1052,7 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
             let mut resolved_ts = ResolvedTs::default();
             resolved_ts.ts = ts;
             resolved_ts.request_id = request_id;
-            *resolved_ts.mut_regions() = regions;
+            *resolved_ts.mut_regions() = regions.clone();
 
             let force_send = false;
             match conn
@@ -1060,7 +1060,7 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
                 .unbounded_send(CdcEvent::ResolvedTs(resolved_ts), force_send)
             {
                 Ok(_) => {
-                    for region in resolved_ts.get_regions() {
+                    for region in regions {
                         info!("cdc send event succeed";
                             "conn_id" => ?conn.get_id(), 
                             "downstream" => ?conn.get_peer(),

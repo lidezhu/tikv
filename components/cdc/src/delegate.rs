@@ -650,6 +650,9 @@ impl Delegate {
             advance.scan_finished += 1;
 
             if downstream.lock_heap.is_none() {
+                debug!("lock heap is none";
+                    "locks" => locks.len(),
+                );
                 let mut lock_heap = BTreeMap::<TimeStamp, isize>::new();
                 for (_, lock) in locks.range(downstream.observed_range.to_range()) {
                     let lock_count = lock_heap.entry(lock.ts).or_default();
@@ -661,6 +664,13 @@ impl Delegate {
             let lock_heap = downstream.lock_heap.as_ref().unwrap();
             let min_lock = lock_heap.keys().next().cloned().unwrap_or(min_ts);
             let advanced_to = std::cmp::min(min_lock, min_ts);
+            debug!("on_min_ts";
+                "min_lock" => min_lock,
+                "advanced_to" => advanced_to,
+                "downstream_id" => downstream.id,  
+                "conn_id" => downstream.conn_id,
+                "downstream.advanced_to" => downstream.advanced_to,
+            );
             if advanced_to > downstream.advanced_to {
                 downstream.advanced_to = advanced_to;
             } else {

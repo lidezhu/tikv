@@ -1086,6 +1086,7 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
             "endpoint on_min_ts";
             "resolved_region_count" => self.resolved_region_count,
             "unresolved_region_count" => self.unresolved_region_count,
+            "blocked_on_locks" => advance.blocked_on_locks,
         );
         advance.emit_resolved_ts(&self.connections);
         self.min_resolved_ts = advance.min_resolved_ts.into();

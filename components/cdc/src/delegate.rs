@@ -667,8 +667,8 @@ impl Delegate {
             debug!("on_min_ts";
                 "min_lock" => min_lock,
                 "advanced_to" => advanced_to,
-                "downstream_id" => downstream.id,  
-                "conn_id" => downstream.conn_id,
+                "downstream_id" => ?downstream.id,  
+                "conn_id" => ?downstream.conn_id,
                 "downstream.advanced_to" => downstream.advanced_to,
             );
             if advanced_to > downstream.advanced_to {

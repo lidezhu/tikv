@@ -401,6 +401,11 @@ impl Advance {
                     batch_min_ts_region_id = regions[0];
                 }
             }
+            debug!("cdc emit batch resolved ts"; 
+                "conn_id" => ?conn.get_id(), 
+                "req_id" => ?req_id,
+                "ts" => ts,
+                "regions" => ?regions);
 
             let mut resolved_ts = ResolvedTs::default();
             resolved_ts.ts = ts;
@@ -440,10 +445,12 @@ impl Advance {
             .chain(exclusive.map(|(a, c)| (a, RequestId(0), c)));
 
         for (conn_id, req_id, mut region_ts_heap) in unioned {
+            debug!("cdc emit batch resolved ts"; "conn_id" => ?conn_id, "req_id" => ?req_id);
             let conn = connections.get(&conn_id).unwrap();
             let mut batch_count = 8;
             while !region_ts_heap.is_empty() {
                 let (ts, regions) = region_ts_heap.pop(batch_count);
+                debug!("cdc emit batch resolved ts 2"; "conn_id" => ?conn_id, "req_id" => ?req_id);
                 if conn.features().contains(FeatureGate::BATCH_RESOLVED_TS) {
                     batch_send(ts.into_inner(), conn, req_id, Vec::from_iter(regions));
                 }
@@ -452,6 +459,7 @@ impl Advance {
         }
 
         for ((conn_id, region_id), (req_id, ts)) in std::mem::take(&mut self.compat) {
+            debug!("cdc emit compat resolved ts"; "conn_id" => ?conn_id, "region_id" => region_id);
             let conn = connections.get(&conn_id).unwrap();
             compat_send(ts.into_inner(), conn, region_id, req_id);
         }

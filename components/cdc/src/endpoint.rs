@@ -453,6 +453,8 @@ impl Advance {
                 debug!("cdc emit batch resolved ts 2"; "conn_id" => ?conn_id, "req_id" => ?req_id);
                 if conn.features().contains(FeatureGate::BATCH_RESOLVED_TS) {
                     batch_send(ts.into_inner(), conn, req_id, Vec::from_iter(regions));
+                } else {
+                    warn!("cdc batch resolved ts is disabled"; "conn_id" => ?conn_id);
                 }
                 batch_count *= 4;
             }

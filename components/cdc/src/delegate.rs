@@ -204,7 +204,7 @@ impl Downstream {
     /// `sink_error_event` is called.
     pub fn sink_error_event(&self, region_id: u64, err_event: EventError) -> Result<()> {
         info!("cdc downstream meets region error";
-            "conn_id" => ?self.conn_id, "downstream_id" => ?self.id, "req_id" => self.req_id);
+            "conn_id" => ?self.conn_id, "downstream_id" => ?self.id, "req_id" => self.req_id, "error" => ?err_event);
 
         self.scan_truncated.store(true, Ordering::Release);
         let mut change_data_event = Event::default();

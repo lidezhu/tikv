@@ -7,7 +7,7 @@ use tokio::{
     io::Result as TokioResult,
     runtime::{Builder, Runtime},
 };
-use tokio_util::task::task_tracker::TaskTracker;
+use tokio_util::task::TaskTracker;
 
 struct DeamonRuntime {
     inner: Option<Runtime>,

@@ -14,7 +14,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use protobuf::atomic_flags::set_redact_bytes as proto_set_redact_bytes;
+use protobuf::atomic_flags::set_redact_level as proto_set_redact_bytes;
 
 pub use crate::hex::*;
 

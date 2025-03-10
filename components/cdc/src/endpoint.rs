@@ -1069,12 +1069,25 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
         self.current_ts = current_ts;
         self.min_resolved_ts = current_ts;
 
+        info!("debug on_min_ts";
+            "min_ts" => min_ts,
+            "current_ts" => current_ts,
+            "region_count" => regions.len(),
+        );
+
         let mut advance = Advance::default();
         for region_id in regions {
             if let Some(d) = self.capture_regions.get_mut(&region_id) {
                 d.on_min_ts(min_ts, current_ts, &self.connections, &mut advance);
             }
         }
+
+        info!("debug on_min_ts end";
+            "min_ts" => min_ts,
+            "current_ts" => current_ts,
+            "resolved_region_count" => advance.scan_finished,
+            "unresolved_region_count" => advance.blocked_on_scan,
+        );
 
         self.resolved_region_count = advance.scan_finished;
         self.unresolved_region_count = advance.blocked_on_scan;

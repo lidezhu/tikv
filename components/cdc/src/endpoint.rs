@@ -257,11 +257,13 @@ impl fmt::Debug for Task {
                 .field("multi_batch", &multi.len())
                 .finish(),
             Task::MinTs {
+                ref regions,
                 ref min_ts,
                 ref current_ts,
                 ..
             } => de
-                .field("type", &"mit_ts")
+                .field("type", &"min_ts")
+                .field("regions", &regions)
                 .field("current_ts", current_ts)
                 .field("min_ts", min_ts)
                 .finish(),
@@ -1025,6 +1027,12 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
         self.resolved_region_count = resolved_regions.heap.len();
         self.unresolved_region_count = total_region_count - self.resolved_region_count;
 
+        debug!(
+            "endpoint on_min_ts";
+            "resolved_region_count" => self.resolved_region_count,
+            "unresolved_region_count" => self.unresolved_region_count,
+        );
+
         // Separate broadcasting outlier regions and normal regions,
         // so 1) downstreams know where they should send resolve lock requests,
         // and 2) resolved ts of normal regions does not fallback.
@@ -1044,16 +1052,23 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
             let mut resolved_ts = ResolvedTs::default();
             resolved_ts.ts = ts;
             resolved_ts.request_id = request_id;
-            *resolved_ts.mut_regions() = regions;
+            *resolved_ts.mut_regions() = regions.clone();
 
             let force_send = false;
             match conn
                 .get_sink()
                 .unbounded_send(CdcEvent::ResolvedTs(resolved_ts), force_send)
             {
-                Ok(_) => (),
+                Ok(_) => {
+                    for region in regions {
+                        info!("cdc send event succeed";
+                            "conn_id" => ?conn.get_id(), 
+                            "downstream" => ?conn.get_peer(),
+                            "region_id" => ?region);
+                    }
+                },
                 Err(SendError::Disconnected) => {
-                    debug!("cdc send event failed, disconnected";
+                    info!("cdc send event failed, disconnected";
                         "conn_id" => ?conn.get_id(), "downstream" => ?conn.get_peer());
                 }
                 Err(SendError::Full) | Err(SendError::Congested) => {

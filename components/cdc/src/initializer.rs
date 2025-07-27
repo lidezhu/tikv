@@ -373,7 +373,7 @@ impl<E: KvEngine> Initializer<E> {
                 // If the last element is None, it means scanning is finished.
                 done = true;
             }
-            debug!("cdc scan entries"; "len" => entries.len(), "region_id" => region_id);
+            info!("cdc scan entries"; "len" => entries.len(), "region_id" => region_id, "done" => done);
             fail_point!("before_schedule_incremental_scan");
             let start_sink = Instant::now_coarse();
             self.sink_scan_events(entries, done).await?;

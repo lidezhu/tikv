@@ -657,6 +657,14 @@ impl Delegate {
 
             let lock_heap = downstream.lock_heap.as_ref().unwrap();
             let min_lock = lock_heap.keys().next().cloned().unwrap_or(min_ts);
+            if min_lock < min_ts {
+                info!("cdc downstream has locks";
+                    "region_id" => self.region_id,
+                    "downstream_id" => ?downstream.id,
+                    "min_lock" => ?min_lock,
+                    "min_ts" => ?min_ts,
+                );
+            }
             let advanced_to = std::cmp::min(min_lock, min_ts);
             if advanced_to > downstream.advanced_to {
                 downstream.advanced_to = advanced_to;
@@ -1402,7 +1410,7 @@ impl ObservedRange {
 }
 
 const WARN_LAG_THRESHOLD: Duration = Duration::from_secs(600);
-const WARN_LAG_INTERVAL: Duration = Duration::from_secs(60);
+const WARN_LAG_INTERVAL: Duration = Duration::from_secs(5);
 
 #[cfg(test)]
 mod tests {

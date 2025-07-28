@@ -351,7 +351,7 @@ impl<E: KvEngine> Initializer<E> {
         while !done {
             // Add metrics to observe long time incremental scan region count
             if !scan_long_time.load(Ordering::SeqCst)
-                && start.saturating_elapsed() > Duration::from_secs(60)
+                && start.saturating_elapsed() > Duration::from_secs(5)
             {
                 CDC_SCAN_LONG_DURATION_REGIONS.inc();
                 scan_long_time.store(true, Ordering::SeqCst);
@@ -373,7 +373,7 @@ impl<E: KvEngine> Initializer<E> {
                 // If the last element is None, it means scanning is finished.
                 done = true;
             }
-            info!("cdc scan entries"; "len" => entries.len(), "region_id" => region_id, "done" => done);
+            info!("cdc scan entries"; "len" => entries.len(), "region_id" => region_id, "done" => done, "downstream_id" => ?self.downstream_id);
             fail_point!("before_schedule_incremental_scan");
             let start_sink = Instant::now_coarse();
             self.sink_scan_events(entries, done).await?;
@@ -627,6 +627,7 @@ impl<E: KvEngine> Initializer<E> {
         let use_ts_filter = valid_count as f64 <= total_count as f64 * self.ts_filter_ratio;
         info!("cdc incremental scan uses ts filter: {}", use_ts_filter;
             "region_id" => self.region_id,
+            "downstream_id" => ?self.downstream_id,
             "hint_min_ts" => hint_min_ts,
             "mvcc_versions" => total_count,
             "filtered_versions" => filtered_count,

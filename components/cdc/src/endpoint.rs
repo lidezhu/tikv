@@ -378,6 +378,17 @@ pub(crate) struct Advance {
 
 impl Advance {
     fn emit_resolved_ts(&mut self, connections: &HashMap<ConnId, Conn>) {
+        info!(
+            "cdc emit resolved-ts";
+            "conn_count" => connections.len(),
+            "multiplexing_group_count" => self.multiplexing.len(),
+            "exclusive_group_count" => self.exclusive.len(),
+            "compat_item_count" => self.compat.len(),
+            "scan_finished" => self.scan_finished,
+            "blocked_on_scan" => self.blocked_on_scan,
+            "blocked_on_locks" => self.blocked_on_locks,
+        );
+
         let handle_send_result = |conn: &Conn, res: Result<(), SendError>| match res {
             Ok(_) => {}
             Err(SendError::Disconnected) => {
@@ -392,6 +403,8 @@ impl Advance {
 
         let mut batch_min_resolved_ts = 0;
         let mut batch_min_ts_region_id = 0;
+        let mut batch_msg_count = 0usize;
+        let mut batch_region_count = 0usize;
         let mut batch_send = |ts: u64, conn: &Conn, req_id: RequestId, regions: Vec<u64>| {
             if batch_min_resolved_ts == 0 || batch_min_resolved_ts > ts {
                 batch_min_resolved_ts = ts;
@@ -399,6 +412,18 @@ impl Advance {
                     batch_min_ts_region_id = regions[0];
                 }
             }
+
+            batch_msg_count += 1;
+            batch_region_count += regions.len();
+            info!(
+                "cdc send resolved-ts batch";
+                "conn_id" => ?conn.get_id(),
+                "downstream" => ?conn.get_peer(),
+                "request_id" => ?req_id,
+                "ts" => ts,
+                "region_count" => regions.len(),
+                "regions" => ?&regions,
+            );
 
             let mut resolved_ts = ResolvedTs::default();
             resolved_ts.ts = ts;
@@ -413,11 +438,22 @@ impl Advance {
 
         let mut compat_min_resolved_ts = 0;
         let mut compat_min_ts_region_id = 0;
+        let mut compat_msg_count = 0usize;
         let mut compat_send = |ts: u64, conn: &Conn, region_id: u64, req_id: RequestId| {
             if compat_min_resolved_ts == 0 || compat_min_resolved_ts > ts {
                 compat_min_resolved_ts = ts;
                 compat_min_ts_region_id = region_id;
             }
+
+            compat_msg_count += 1;
+            info!(
+                "cdc send resolved-ts compat";
+                "conn_id" => ?conn.get_id(),
+                "downstream" => ?conn.get_peer(),
+                "request_id" => ?req_id,
+                "ts" => ts,
+                "region_id" => region_id,
+            );
 
             let event = Event {
                 region_id,
@@ -439,10 +475,19 @@ impl Advance {
 
         for (conn_id, req_id, mut region_ts_heap) in unioned {
             let conn = connections.get(&conn_id).unwrap();
+            let supports_batch = conn.features().contains(FeatureGate::BATCH_RESOLVED_TS);
+            if !supports_batch {
+                warn!(
+                    "cdc emit resolved-ts skipped: connection doesn't support batch resolved-ts";
+                    "conn_id" => ?conn.get_id(),
+                    "downstream" => ?conn.get_peer(),
+                    "request_id" => ?req_id,
+                );
+            }
             let mut batch_count = 8;
             while !region_ts_heap.is_empty() {
                 let (ts, regions) = region_ts_heap.pop(batch_count);
-                if conn.features().contains(FeatureGate::BATCH_RESOLVED_TS) {
+                if supports_batch {
                     batch_send(ts.into_inner(), conn, req_id, Vec::from_iter(regions));
                 }
                 batch_count *= 4;
@@ -461,6 +506,19 @@ impl Advance {
             self.min_resolved_ts = compat_min_resolved_ts;
             self.min_ts_region_id = compat_min_ts_region_id;
         }
+
+        info!(
+            "cdc emit resolved-ts done";
+            "batch_msg_count" => batch_msg_count,
+            "batch_region_count" => batch_region_count,
+            "compat_msg_count" => compat_msg_count,
+            "batch_min_resolved_ts" => batch_min_resolved_ts,
+            "batch_min_ts_region_id" => batch_min_ts_region_id,
+            "compat_min_resolved_ts" => compat_min_resolved_ts,
+            "compat_min_ts_region_id" => compat_min_ts_region_id,
+            "chosen_min_resolved_ts" => self.min_resolved_ts,
+            "chosen_min_ts_region_id" => self.min_ts_region_id,
+        );
     }
 }
 

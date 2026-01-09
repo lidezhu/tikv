@@ -889,14 +889,40 @@ where
         if regions.is_empty() {
             return;
         }
+        info!(
+            "resolved-ts apply advance";
+            "ts" => ts,
+            "ts_source" => ts_source.label(),
+            "region_count" => regions.len(),
+            "regions" => ?&regions,
+        );
         let now = tikv_util::time::Instant::now_coarse();
         for region_id in regions.iter() {
-            if let Some(observe_region) = self.regions.get_mut(region_id) {
-                if let ResolverStatus::Ready = observe_region.resolver_status {
-                    let _ = observe_region
-                        .resolver
-                        .resolve(ts, Some(now), ts_source.clone());
+            match self.regions.get_mut(region_id) {
+                None => {
+                    info!(
+                        "resolved-ts advance skipped: region not registered";
+                        "region_id" => region_id,
+                        "ts" => ts,
+                        "ts_source" => ts_source.label(),
+                    );
                 }
+                Some(observe_region) => match observe_region.resolver_status {
+                    ResolverStatus::Ready => {
+                        let _ = observe_region
+                            .resolver
+                            .resolve(ts, Some(now), ts_source.clone());
+                    }
+                    _ => {
+                        info!(
+                            "resolved-ts advance skipped: resolver not ready";
+                            "region_id" => region_id,
+                            "ts" => ts,
+                            "ts_source" => ts_source.label(),
+                            "resolver_status" => "pending",
+                        );
+                    }
+                },
             }
         }
     }

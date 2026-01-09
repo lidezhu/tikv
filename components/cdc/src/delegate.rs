@@ -621,6 +621,14 @@ impl Delegate {
         let locks = match &self.lock_tracker {
             LockTracker::Prepared { locks, .. } => locks,
             _ => {
+                info!(
+                    "cdc resolved-ts advance skipped: lock scan not finished";
+                    "region_id" => self.region_id,
+                    "min_ts" => min_ts,
+                    "current_ts" => current_ts,
+                    "stage" => ?self.lock_tracker,
+                    "downstream_count" => self.downstreams.len(),
+                );
                 advance.blocked_on_scan += self.downstreams.len();
                 let now = Instant::now_coarse();
                 let elapsed = now.duration_since(self.created);
@@ -640,7 +648,20 @@ impl Delegate {
         };
 
         let mut handle_downstream = |downstream: &mut Downstream| -> Option<TimeStamp> {
-            if !downstream.state.load().ready_for_advancing_ts() {
+            let state = downstream.state.load();
+            if !state.ready_for_advancing_ts() {
+                info!(
+                    "cdc resolved-ts advance skipped: downstream not ready";
+                    "region_id" => self.region_id,
+                    "downstream_id" => ?downstream.id,
+                    "downstream" => ?downstream.peer,
+                    "conn_id" => ?downstream.conn_id,
+                    "request_id" => ?downstream.req_id,
+                    "state" => ?state,
+                    "advanced_to" => downstream.advanced_to,
+                    "min_ts" => min_ts,
+                    "current_ts" => current_ts,
+                );
                 advance.blocked_on_scan += 1;
                 return None;
             }
@@ -653,15 +674,58 @@ impl Delegate {
                     *lock_count += 1;
                 }
                 downstream.lock_heap = Some(lock_heap);
+                info!(
+                    "cdc resolved-ts built lock heap";
+                    "region_id" => self.region_id,
+                    "downstream_id" => ?downstream.id,
+                    "downstream" => ?downstream.peer,
+                    "conn_id" => ?downstream.conn_id,
+                    "request_id" => ?downstream.req_id,
+                    "observed_range_all_key_covered" => downstream.observed_range.all_key_covered,
+                    "observed_range_start_key" => &log_wrappers::Value::key(downstream.observed_range.start_key_encoded.as_encoded()),
+                    "observed_range_end_key" => &log_wrappers::Value::key(downstream.observed_range.end_key_encoded.as_encoded()),
+                    "lock_ts_count" => downstream.lock_heap.as_ref().unwrap().len(),
+                    "min_ts" => min_ts,
+                    "current_ts" => current_ts,
+                );
             }
 
             let lock_heap = downstream.lock_heap.as_ref().unwrap();
             let min_lock = lock_heap.keys().next().cloned().unwrap_or(min_ts);
-            let advanced_to = std::cmp::min(min_lock, min_ts);
-            if advanced_to > downstream.advanced_to {
-                downstream.advanced_to = advanced_to;
+            let candidate = std::cmp::min(min_lock, min_ts);
+            let prev_advanced_to = downstream.advanced_to;
+            if candidate > downstream.advanced_to {
+                downstream.advanced_to = candidate;
+                info!(
+                    "cdc resolved-ts advanced";
+                    "region_id" => self.region_id,
+                    "downstream_id" => ?downstream.id,
+                    "downstream" => ?downstream.peer,
+                    "conn_id" => ?downstream.conn_id,
+                    "request_id" => ?downstream.req_id,
+                    "from" => prev_advanced_to,
+                    "to" => downstream.advanced_to,
+                    "min_lock_ts" => min_lock,
+                    "min_ts" => min_ts,
+                    "current_ts" => current_ts,
+                    "lock_ts_count" => lock_heap.len(),
+                );
             } else {
                 advance.blocked_on_locks += 1;
+                info!(
+                    "cdc resolved-ts not advanced";
+                    "region_id" => self.region_id,
+                    "downstream_id" => ?downstream.id,
+                    "downstream" => ?downstream.peer,
+                    "conn_id" => ?downstream.conn_id,
+                    "request_id" => ?downstream.req_id,
+                    "advanced_to" => downstream.advanced_to,
+                    "candidate" => candidate,
+                    "min_lock_ts" => min_lock,
+                    "min_ts" => min_ts,
+                    "current_ts" => current_ts,
+                    "lock_ts_count" => lock_heap.len(),
+                );
             }
             Some(downstream.advanced_to)
         };

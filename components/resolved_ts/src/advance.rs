@@ -106,6 +106,7 @@ impl AdvanceTsWorker {
 
         let last_pd_tso = self.last_pd_tso.clone();
         let fut = async move {
+            let checking_regions = regions;
             // Ignore get tso errors since we will retry every `advance_ts_interval`.
             let mut min_ts = pd_client.get_tso().await.unwrap_or_default();
             if let Ok(mut last_pd_tso) = last_pd_tso.try_lock() {
@@ -114,6 +115,7 @@ impl AdvanceTsWorker {
                 }
             }
             let mut ts_source = TsSource::PdTso;
+            let pd_tso = min_ts;
 
             // Sync with concurrency manager so that it can work correctly when
             // optimizations like async commit is enabled.
@@ -130,16 +132,56 @@ impl AdvanceTsWorker {
                 }
             }
 
+            info!(
+                "resolved-ts advance tick";
+                "advance_ts_interval" => ?advance_ts_interval,
+                "pd_tso" => pd_tso,
+                "min_ts" => min_ts,
+                "ts_source" => ts_source.label(),
+                "checking_region_count" => checking_regions.len(),
+                "checking_regions" => ?&checking_regions,
+            );
+
             let regions = leader_resolver
-                .resolve(regions, min_ts, Some(advance_ts_interval))
+                .resolve(checking_regions.clone(), min_ts, Some(advance_ts_interval))
                 .await;
+
+            if regions.is_empty() {
+                info!(
+                    "resolved-ts advance skipped: no valid leader regions";
+                    "min_ts" => min_ts,
+                    "ts_source" => ts_source.label(),
+                    "checking_region_count" => checking_regions.len(),
+                    "checking_regions" => ?&checking_regions,
+                );
+            } else {
+                let region_set: HashSet<u64> = regions.iter().copied().collect();
+                let invalid_regions: Vec<u64> = checking_regions
+                    .iter()
+                    .copied()
+                    .filter(|id| !region_set.contains(id))
+                    .collect();
+                info!(
+                    "resolved-ts advance leadership resolved";
+                    "min_ts" => min_ts,
+                    "ts_source" => ts_source.label(),
+                    "valid_region_count" => regions.len(),
+                    "valid_regions" => ?&regions,
+                    "invalid_region_count" => invalid_regions.len(),
+                    "invalid_regions" => ?invalid_regions,
+                );
+            }
             if !regions.is_empty() {
                 if let Err(e) = scheduler.schedule(Task::ResolvedTsAdvanced {
                     regions,
                     ts: min_ts,
                     ts_source,
                 }) {
-                    info!("failed to schedule advance event"; "err" => ?e);
+                    info!(
+                        "failed to schedule resolved-ts advance event";
+                        "err" => ?e,
+                        "min_ts" => min_ts,
+                    );
                 }
             }
 

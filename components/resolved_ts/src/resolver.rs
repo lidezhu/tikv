@@ -426,9 +426,20 @@ impl Resolver {
             self.last_aggressive_shrink_time = Instant::now_coarse();
         }
 
+        let prev_resolved_ts = self.resolved_ts;
+        let prev_min_ts = self.min_ts;
+
         // The `Resolver` is stopped, not need to advance, just return the current
         // `resolved_ts`
         if self.stopped {
+            info!(
+                "resolved-ts resolver stopped, skip advance";
+                "region_id" => self.region_id,
+                "resolved_ts" => prev_resolved_ts,
+                "min_ts" => min_ts,
+                "source" => source.label(),
+                "tracked_index" => self.tracked_index,
+            );
             return self.resolved_ts;
         }
 
@@ -440,31 +451,34 @@ impl Resolver {
         // No more commit happens before the ts.
         let new_resolved_ts = cmp::min(min_txn_ts, min_ts);
         // reason is the min source of the new resolved ts.
-        let reason = match (min_lock, min_ts) {
-            (Some((lock_ts, txn_locks)), min_ts) if lock_ts < min_ts => TsSource::Lock(txn_locks),
+        let reason = match (min_lock.as_ref(), min_ts) {
+            (Some((lock_ts, txn_locks)), min_ts) if *lock_ts < min_ts => {
+                TsSource::Lock(txn_locks.clone())
+            }
             (Some(_), _) => source,
             (None, _) => source,
         };
+        let reason_key = reason.key();
 
-        if self.resolved_ts >= new_resolved_ts {
+        if prev_resolved_ts >= new_resolved_ts {
             RTS_RESOLVED_FAIL_ADVANCE_VEC
                 .with_label_values(&[reason.label()])
                 .inc();
             self.last_attempt = Some(LastAttempt {
                 success: false,
                 ts: new_resolved_ts,
-                reason,
+                reason: reason.clone(),
             });
         } else {
             self.last_attempt = Some(LastAttempt {
                 success: true,
                 ts: new_resolved_ts,
-                reason,
+                reason: reason.clone(),
             })
         }
 
         // Resolved ts never decrease.
-        self.resolved_ts = cmp::max(self.resolved_ts, new_resolved_ts);
+        self.resolved_ts = cmp::max(prev_resolved_ts, new_resolved_ts);
 
         // Publish an `(apply index, safe ts)` item into the region read progress
         if let Some(rrp) = &self.read_progress {
@@ -480,7 +494,185 @@ impl Resolver {
             min_ts
         };
         // Min ts never decrease.
-        self.min_ts = cmp::max(self.min_ts, new_min_ts);
+        self.min_ts = cmp::max(prev_min_ts, new_min_ts);
+
+        let advanced = self.resolved_ts > prev_resolved_ts;
+        match (advanced, min_lock.as_ref(), reason_key.as_ref()) {
+            (true, Some((lock_ts, txn_locks)), Some(reason_key)) => {
+                if let Some(sample_lock) = txn_locks.sample_lock.as_ref() {
+                    info!(
+                        "resolved-ts advanced";
+                        "region_id" => self.region_id,
+                        "from" => prev_resolved_ts,
+                        "to" => self.resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "source_key" => &log_wrappers::Value::key(reason_key.as_encoded()),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "min_lock_sample" => &log_wrappers::Value::key(sample_lock),
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                } else {
+                    info!(
+                        "resolved-ts advanced";
+                        "region_id" => self.region_id,
+                        "from" => prev_resolved_ts,
+                        "to" => self.resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "source_key" => &log_wrappers::Value::key(reason_key.as_encoded()),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                }
+            }
+            (true, Some((lock_ts, txn_locks)), None) => {
+                if let Some(sample_lock) = txn_locks.sample_lock.as_ref() {
+                    info!(
+                        "resolved-ts advanced";
+                        "region_id" => self.region_id,
+                        "from" => prev_resolved_ts,
+                        "to" => self.resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "min_lock_sample" => &log_wrappers::Value::key(sample_lock),
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                } else {
+                    info!(
+                        "resolved-ts advanced";
+                        "region_id" => self.region_id,
+                        "from" => prev_resolved_ts,
+                        "to" => self.resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                }
+            }
+            (true, None, Some(reason_key)) => {
+                info!(
+                    "resolved-ts advanced";
+                    "region_id" => self.region_id,
+                    "from" => prev_resolved_ts,
+                    "to" => self.resolved_ts,
+                    "min_ts" => min_ts,
+                    "source" => reason.label(),
+                    "source_key" => &log_wrappers::Value::key(reason_key.as_encoded()),
+                    "tracked_index" => self.tracked_index,
+                    "min_ts_in_resolver" => self.min_ts,
+                );
+            }
+            (true, None, None) => {
+                info!(
+                    "resolved-ts advanced";
+                    "region_id" => self.region_id,
+                    "from" => prev_resolved_ts,
+                    "to" => self.resolved_ts,
+                    "min_ts" => min_ts,
+                    "source" => reason.label(),
+                    "tracked_index" => self.tracked_index,
+                    "min_ts_in_resolver" => self.min_ts,
+                );
+            }
+            (false, Some((lock_ts, txn_locks)), Some(reason_key)) => {
+                if let Some(sample_lock) = txn_locks.sample_lock.as_ref() {
+                    info!(
+                        "resolved-ts not advanced";
+                        "region_id" => self.region_id,
+                        "resolved_ts" => self.resolved_ts,
+                        "candidate" => new_resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "source_key" => &log_wrappers::Value::key(reason_key.as_encoded()),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "min_lock_sample" => &log_wrappers::Value::key(sample_lock),
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                } else {
+                    info!(
+                        "resolved-ts not advanced";
+                        "region_id" => self.region_id,
+                        "resolved_ts" => self.resolved_ts,
+                        "candidate" => new_resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "source_key" => &log_wrappers::Value::key(reason_key.as_encoded()),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                }
+            }
+            (false, Some((lock_ts, txn_locks)), None) => {
+                if let Some(sample_lock) = txn_locks.sample_lock.as_ref() {
+                    info!(
+                        "resolved-ts not advanced";
+                        "region_id" => self.region_id,
+                        "resolved_ts" => self.resolved_ts,
+                        "candidate" => new_resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "min_lock_sample" => &log_wrappers::Value::key(sample_lock),
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                } else {
+                    info!(
+                        "resolved-ts not advanced";
+                        "region_id" => self.region_id,
+                        "resolved_ts" => self.resolved_ts,
+                        "candidate" => new_resolved_ts,
+                        "min_ts" => min_ts,
+                        "source" => reason.label(),
+                        "min_lock_ts" => lock_ts,
+                        "min_lock_count" => txn_locks.lock_count,
+                        "tracked_index" => self.tracked_index,
+                        "min_ts_in_resolver" => self.min_ts,
+                    );
+                }
+            }
+            (false, None, Some(reason_key)) => {
+                info!(
+                    "resolved-ts not advanced";
+                    "region_id" => self.region_id,
+                    "resolved_ts" => self.resolved_ts,
+                    "candidate" => new_resolved_ts,
+                    "min_ts" => min_ts,
+                    "source" => reason.label(),
+                    "source_key" => &log_wrappers::Value::key(reason_key.as_encoded()),
+                    "tracked_index" => self.tracked_index,
+                    "min_ts_in_resolver" => self.min_ts,
+                );
+            }
+            (false, None, None) => {
+                info!(
+                    "resolved-ts not advanced";
+                    "region_id" => self.region_id,
+                    "resolved_ts" => self.resolved_ts,
+                    "candidate" => new_resolved_ts,
+                    "min_ts" => min_ts,
+                    "source" => reason.label(),
+                    "tracked_index" => self.tracked_index,
+                    "min_ts_in_resolver" => self.min_ts,
+                );
+            }
+        }
 
         self.resolved_ts
     }

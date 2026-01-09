@@ -1082,6 +1082,14 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
         self.current_ts = current_ts;
         self.min_resolved_ts = current_ts;
 
+        info!(
+            "cdc min-ts tick";
+            "region_count" => regions.len(),
+            "regions" => ?&regions,
+            "min_ts" => min_ts,
+            "current_ts" => current_ts,
+        );
+
         let mut advance = Advance::default();
         for region_id in regions {
             if let Some(d) = self.capture_regions.get_mut(&region_id) {
@@ -1165,21 +1173,48 @@ impl<T: 'static + CdcHandle<E>, E: KvEngine, S: StoreRegionMeta> Endpoint<T, E, 
 
             // Check region peer leadership, make sure they are leaders.
             let gate = pd_client.feature_gate();
-            let regions =
+            let checking_regions = regions;
+            let resolved_regions =
                 if hibernate_regions_compatible && gate.can_enable(FEATURE_RESOLVED_TS_STORE) {
                     CDC_RESOLVED_TS_ADVANCE_METHOD.set(1);
                     leader_resolver
-                        .resolve(regions, min_ts, Some(advance_ts_interval))
+                        .resolve(checking_regions.clone(), min_ts, Some(advance_ts_interval))
                         .await
                 } else {
                     CDC_RESOLVED_TS_ADVANCE_METHOD.set(0);
-                    resolve_by_raft(regions, min_ts, cdc_handle).await
+                    resolve_by_raft(checking_regions.clone(), min_ts, cdc_handle).await
                 };
             leader_resolver_tx.send(leader_resolver).unwrap();
 
-            if !regions.is_empty() {
+            if resolved_regions.is_empty() {
+                info!(
+                    "cdc resolved-ts advance skipped: no valid leader regions";
+                    "min_ts" => min_ts,
+                    "current_ts" => min_ts_pd,
+                    "checking_region_count" => checking_regions.len(),
+                    "checking_regions" => ?&checking_regions,
+                );
+            } else {
+                let resolved_set: HashSet<u64> = resolved_regions.iter().copied().collect();
+                let invalid_regions: Vec<u64> = checking_regions
+                    .iter()
+                    .copied()
+                    .filter(|id| !resolved_set.contains(id))
+                    .collect();
+                info!(
+                    "cdc resolved-ts leadership resolved";
+                    "min_ts" => min_ts,
+                    "current_ts" => min_ts_pd,
+                    "resolved_region_count" => resolved_regions.len(),
+                    "resolved_regions" => ?&resolved_regions,
+                    "invalid_region_count" => invalid_regions.len(),
+                    "invalid_regions" => ?invalid_regions,
+                );
+            }
+
+            if !resolved_regions.is_empty() {
                 match scheduler.schedule(Task::MinTs {
-                    regions,
+                    regions: resolved_regions,
                     min_ts,
                     current_ts: min_ts_pd,
                 }) {
